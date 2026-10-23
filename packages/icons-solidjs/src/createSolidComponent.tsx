@@ -1,7 +1,7 @@
-import { JSX } from 'solid-js/jsx-runtime';
+import type { JSX } from '@solidjs/web';
 import defaultAttributes from './defaultAttributes';
-import { splitProps } from 'solid-js';
-import { Dynamic } from 'solid-js/web';
+import { omit } from 'solid-js';
+import { dynamic } from '@solidjs/web';
 import { IconNode, IconProps } from './types';
 
 const createSolidComponent = (
@@ -10,40 +10,36 @@ const createSolidComponent = (
   iconNamePascal: string,
   iconNode: IconNode,
 ) => {
+  // An icon's shapes never change: each tag is resolved once, for every instance.
+  const shapes = iconNode.map(([tag, attrs]) => [dynamic(() => tag, { static: true }), attrs] as const);
+
   const Component = (props: IconProps): JSX.Element => {
-    const [localProps, rest] = splitProps(props, [
-      'color',
-      'size',
-      'stroke',
-      'strokeWidth',
-      'title',
-      'children',
-      'class',
-    ]);
+    // Solid 2: `omit` is the rest half of `splitProps`; the local props are read from `props`.
+    const rest = omit(props, 'color', 'size', 'stroke', 'strokeWidth', 'title', 'children', 'class');
     const attributes = defaultAttributes[type];
-    const strokeValue = localProps.stroke ?? localProps.strokeWidth;
+    const strokeValue = () => props.stroke ?? props.strokeWidth;
 
     return (
       <svg
         {...attributes}
         {...rest}
-        width={localProps.size != null ? localProps.size : attributes.width}
-        height={localProps.size != null ? localProps.size : attributes.height}
-        class={`tabler-icon tabler-icon-${iconName}${localProps.class ? ` ${localProps.class}` : ''}`}
+        width={props.size != null ? props.size : attributes.width}
+        height={props.size != null ? props.size : attributes.height}
+        class={`tabler-icon tabler-icon-${iconName}${props.class ? ` ${props.class}` : ''}`}
         {...(type === 'filled'
           ? {
-              fill: localProps.color != null ? localProps.color : 'currentColor',
+              fill: props.color != null ? props.color : 'currentColor',
             }
           : {
-              stroke: localProps.color != null ? localProps.color : 'currentColor',
-              'stroke-width': strokeValue != null ? strokeValue : attributes['stroke-width'],
+              stroke: props.color != null ? props.color : 'currentColor',
+              'stroke-width': strokeValue() != null ? strokeValue() : attributes['stroke-width'],
             })}
       >
-        {localProps.title != null && <title>{localProps.title}</title>}
-        {iconNode.map(([tag, attrs]) => (
-          <Dynamic component={tag} {...attrs} />
+        {props.title != null && <title>{props.title}</title>}
+        {shapes.map(([Shape, attrs]) => (
+          <Shape {...attrs} />
         ))}
-        {localProps.children}
+        {props.children}
       </svg>
     );
   };

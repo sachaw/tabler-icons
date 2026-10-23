@@ -67,11 +67,13 @@
     "@solidjs/testing-library": "^0.8.6",
     "rollup-preset-solid": "^2.0.1",
     "vite-plugin-solid": "^2.10.1",
-    "solid-js": "^1.8.15",
+    "solid-js": "2.0.0-rc.16",
+    "@solidjs/web": "2.0.0-rc.16",
     "rollup": "catalog:"
   },
   "peerDependencies": {
-    "solid-js": "^1.4.7"
+    "solid-js": ">=2.0.0-rc.16",
+    "@solidjs/web": ">=2.0.0-rc.16"
   },
   "optionalDependencies": {}
 }
