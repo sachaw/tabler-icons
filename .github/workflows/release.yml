@@ -65,32 +65,64 @@ jobs:
       - name: Add changeset for new icons
         run: node ./.build/release-changeset.mjs
 
+      # Turbo's local cache for a rerun of a failed release: the packages built by
+      # the earlier attempt are restored instead of being rebuilt. Only attempts
+      # of the same commit are restored, the version bump of a new release
+      # changes the inputs of every package anyway. Skipped while changesets are
+      # pending, the packages are built only when they are published.
+      - uses: actions/cache/restore@v6
+        name: Restore turbo cache
+        if: hashFiles('.changeset/*.md', '!.changeset/README.md') == ''
+        with:
+          path: .turbo/cache
+          key: ${{ runner.os }}-turbo-release-${{ github.sha }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-release-${{ github.sha }}-
+
       - name: Create release pull request or publish
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@v2
         with:
-          version: pnpm run version-packages
-          publish: pnpm run release
-          title: 'Release'
-          commit: 'Release'
-          createGithubReleases: false
+          version-script: pnpm run version-packages
+          publish-script: pnpm run release
+          pr-title: 'Release'
+          commit-message: 'Release'
+          # The tag and the GitHub release are created by the step below, from
+          # the zip of the published packages.
+          create-github-releases: false
+          push-git-tags: false
         env:
+          # Read by `@changesets/changelog-github` for the pull request links
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Saved even when the publish command fails, that is exactly the run whose
+      # rerun needs the cache. Every attempt gets its own key, an existing cache
+      # entry cannot be overwritten.
+      - uses: actions/cache/save@v6
+        name: Save turbo cache
+        if: ${{ !cancelled() && steps.changesets.outputs.has-changesets == 'false' }}
+        with:
+          path: .turbo/cache
+          key: ${{ runner.os }}-turbo-release-${{ github.sha }}-${{ github.run_attempt }}
 
       # Changesets describes every package separately, while GitHub gets a single
       # release for all of them. The description is replaced with a preview of
       # that release, with the image of the new icons on top. The image is loaded
       # from the commit on the release branch, the `v<version>` tag does not
       # exist yet.
+      #
+      # The action pushes the release commit through the GitHub API and leaves
+      # the versioned files uncommitted in the working tree, so the checkout of
+      # that commit has to be forced. The files are the same either way.
       - name: Show the GitHub release in the release pull request
-        if: steps.changesets.outputs.pullRequestNumber != ''
+        if: steps.changesets.outputs.pr-number != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
+          PR_NUMBER: ${{ steps.changesets.outputs.pr-number }}
         run: |
           SHA=$(gh api "repos/${GITHUB_REPOSITORY}/commits/changeset-release/main" --jq .sha)
           git fetch origin changeset-release/main
-          git checkout --detach "$SHA"
+          git checkout --force --detach "$SHA"
           VERSION=$(node -p "require('./packages/icons/package.json').version")
           {
             echo "Merging this pull request publishes all \`@tabler/icons*\` packages in version **${VERSION}** to npm and creates the following GitHub release."
@@ -101,15 +133,14 @@ jobs:
           } > body.md
           gh pr edit "$PR_NUMBER" --body-file body.md
 
-      # The `published` output of the action stays empty with Changesets 3, which
-      # no longer prints the `New tag:` lines the action looks for. Without
-      # pending changesets the action runs the publish command, so the release is
+      # The `published` output of the action is not relied on. Without pending
+      # changesets the action runs the publish command, so the release is
       # created whenever it does not exist yet. It is created even when the
       # publish command fails (for example when npm rejects a package that was
       # already staged in an earlier run), the packages that were published
       # should not stay without the release.
       - name: Create GitHub release
-        if: ${{ !cancelled() && steps.changesets.outputs.hasChangesets == 'false' }}
+        if: ${{ !cancelled() && steps.changesets.outputs.has-changesets == 'false' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
